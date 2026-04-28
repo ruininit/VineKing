@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Vine King</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; touch-action:none; -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+html { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+body { background:#0a0a0a; display:flex; align-items:center; justify-content:center; height:100dvh; overflow:hidden; font-family:'Courier New',monospace; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+canvas { display:block; image-rendering:pixelated; image-rendering:crisp-edges; touch-action:none; -webkit-user-select:none; user-select:none; }
+#ui-top { position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between; align-items:flex-start; padding:10px 12px; z-index:10; pointer-events:none; }
+.score-box { background:rgba(0,0,0,0.65); border:2px solid #4cff6e; padding:4px 10px; color:#4cff6e; font-size:clamp(14px,4vw,20px); font-weight:bold; letter-spacing:2px; }
+.hi-box { background:rgba(0,0,0,0.65); border:2px solid #ffcc00; padding:4px 10px; color:#ffcc00; font-size:clamp(11px,3vw,15px); letter-spacing:2px; }
+#clear-hi-btn { background:none; border:1px solid #444; color:#555; font-family:'Courier New',monospace; font-size:10px; letter-spacing:2px; padding:4px 12px; cursor:pointer; margin-top:6px; display:block; }
+#clear-hi-btn:active { color:#aaa; border-color:#aaa; }
+#overlay-hi { position:absolute; top:10px; right:12px; z-index:21; pointer-events:none; }
+#screen-overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(0,0,0,0.85); z-index:20; }
+#screen-overlay.hidden { display:none; }
+.pixel-title { font-size:clamp(30px,9vw,56px); color:#4cff6e; letter-spacing:4px; text-shadow:4px 4px 0 #007a30,8px 8px 0 #003a18; margin-bottom:6px; text-align:center; }
+.pixel-sub { font-size:clamp(11px,3vw,15px); color:#ffcc00; letter-spacing:3px; margin-bottom:30px; }
+.pixel-btn { background:#4cff6e; color:#000; border:none; font-family:'Courier New',monospace; font-size:clamp(14px,4vw,20px); font-weight:bold; letter-spacing:3px; padding:14px 40px; cursor:pointer; box-shadow:4px 4px 0 #007a30; transition:transform 0.05s,box-shadow 0.05s; }
+.pixel-btn:active { transform:translate(3px,3px); box-shadow:1px 1px 0 #007a30; }
+.instructions { color:#888; font-size:clamp(10px,2.5vw,13px); letter-spacing:2px; margin-top:22px; text-align:center; line-height:2.2; }
+.over-score { color:#fff; font-size:clamp(16px,5vw,28px); letter-spacing:3px; margin-bottom:6px; }
+.over-hi { color:#ffcc00; font-size:clamp(12px,3.5vw,18px); letter-spacing:3px; margin-bottom:28px; }
+.new-best { color:#ffcc00; font-size:clamp(13px,3.5vw,18px); letter-spacing:3px; margin-bottom:28px; animation:blink 0.5s step-end infinite; }
+@keyframes blink { 50%{opacity:0;} }
+</style>
+</head>
+<body>
+<div id="ui-top">
+  <div id="fps-display" style="position:absolute;top:48px;left:12px;background:rgba(0,0,0,0.5);color:#ff8800;font-family:'Courier New',monospace;font-size:10px;letter-spacing:1px;padding:2px 6px;pointer-events:none;z-index:11;"></div>
+  <div class="score-box">SCORE: <span id="score-display">0</span></div>
+  <div class="hi-box">BEST: <span id="hi-display">0</span></div>
+</div>
+<canvas id="game"></canvas>
+<div id="overlay-hi" style="display:none;"><div class="hi-box">BEST: <span id="hi-display-overlay">0</span></div></div>
+<div id="screen-overlay">
+  <div class="pixel-title">&#x1F34C; VINE KING</div>
+  <div class="pixel-sub">JUNGLE SWING</div>
+  <div style="display:flex;flex-direction:column;align-items:flex-start;position:absolute;top:12px;left:12px;">
+    <button id="clear-hi-btn">CLEAR BEST</button>
+  </div>
+  <button class="pixel-btn" id="main-btn">&#x25BA; PLAY</button>
+  <div class="instructions">TAP &amp; HOLD &#x2192; GRAB VINE<br>RELEASE &#x2192; LAUNCH INTO AIR<br>DON'T FALL! COLLECT &#x1F34C;</div>
+</div>
+<script>
+// ═══════════════════════════════════════════════════
+// SPRITES  —  edit these 2-D arrays to change art
+//   ''  = transparent pixel
+//   hex = that colour
+// ═══════════════════════════════════════════════════
+const SPRITES = {
+  ape_idle:[
+    // row 0-1: black cap brim + crown
+    ['','','','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','','','','','',''],
+    ['','','#1a1a1a','#2a2a2a','#2a2a2a','#2a2a2a','#2a2a2a','#2a2a2a','#2a2a2a','#2a2a2a','#1a1a1a','','','','',''],
+    // row 2: cap brim overhangs, face begins
+    ['','#111111','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','','','','',''],
+    // row 3: forehead / brow ridge (blue tint brow like ref)
+    ['','','','#3a6080','#3a6080','#C68642','#C68642','#C68642','#C68642','#3a6080','#3a6080','','','','',''],
+    // row 4: eyes
+    ['','','','#C68642','#C68642','#111','#F5DEB3','#F5DEB3','#111','#C68642','#C68642','','','','',''],
+    // row 5: nose / muzzle
+    ['','','','#C68642','#C68642','#C68642','#F5DEB3','#F5DEB3','#C68642','#C68642','#C68642','','','','',''],
+    // row 6: mouth area
+    ['','','','#5c3317','#C68642','#F5DEB3','#cc4444','#F5DEB3','#F5DEB3','#C68642','#5c3317','','','','',''],
+    // row 7: chin / neck
+    ['','','','','#5c3317','#C68642','#C68642','#C68642','#C68642','#5c3317','','','','','',''],
+    // row 8: shoulders — white shirt, brown arms
+    ['','','#7a3010','#7a3010','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#7a3010','#7a3010','','','','',''],
+    // row 9: chest — white shirt body
+    ['','#7a3010','#7a3010','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#7a3010','#7a3010','','','',''],
+    // row 10: mid chest
+    ['','#7a3010','#ffffff','#222222','#222222','#222222','#222222','#222222','#222222','#ffffff','#ffffff','#7a3010','','','',''],
+    // row 11: shirt hem / shorts waist
+    ['','','#7a3010','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#7a3010','','','','',''],
+    // row 12: green shorts
+    ['','','','#2e7a5a','#2e7a5a','#2e7a5a','#2e7a5a','#2e7a5a','#2e7a5a','','','','','','',''],
+    // row 13: shorts legs
+    ['','','','#236650','#236650','','','#236650','#236650','','','','','','',''],
+    // row 14: feet hint
+    ['','','','#C68642','#C68642','','','#C68642','#C68642','','','','','','',''],
+    // row 15: empty
+    ['','','','','','','','','','','','','','','',''],
+  ],
+  ape_swing:[
+    // cap
+    ['','','','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','','','','','',''],
+    ['','','#1a1a1a','#2a2a2a','#2a2a2a','#2a2a2a','#2a2a2a','#2a2a2a','#2a2a2a','#2a2a2a','#1a1a1a','','','','',''],
+    ['','#111111','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','#1a1a1a','','','','',''],
+    // brow
+    ['','','','#3a6080','#3a6080','#C68642','#C68642','#C68642','#C68642','#3a6080','#3a6080','','','','',''],
+    // eyes
+    ['','','','#C68642','#C68642','#111','#F5DEB3','#F5DEB3','#111','#C68642','#C68642','','','','',''],
+    // muzzle
+    ['','','','#C68642','#C68642','#C68642','#F5DEB3','#F5DEB3','#C68642','#C68642','#C68642','','','','',''],
+    // mouth
+    ['','','','#5c3317','#C68642','#F5DEB3','#cc4444','#F5DEB3','#F5DEB3','#C68642','#5c3317','','','','',''],
+    // chin
+    ['','','','','#5c3317','#C68642','#C68642','#C68642','#C68642','#5c3317','','','','','',''],
+    // arms raised — white shirt torso, brown arms up
+    ['#7a3010','#7a3010','#7a3010','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#7a3010','#7a3010','#7a3010','','','',''],
+    // chest
+    ['','#7a3010','#ffffff','#222222','#222222','#222222','#222222','#222222','#222222','#ffffff','#ffffff','#7a3010','','','',''],
+    // mid shirt
+    ['','#7a3010','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#7a3010','','','',''],
+    // shirt hem
+    ['','','#7a3010','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#ffffff','#7a3010','','','','',''],
+    // shorts
+    ['','','','#2e7a5a','#2e7a5a','#2e7a5a','#2e7a5a','#2e7a5a','#2e7a5a','','','','','','',''],
+    // shorts legs
+    ['','','','#236650','#236650','','','#236650','#236650','','','','','','',''],
+    // feet
+    ['','','','#C68642','#C68642','','','#C68642','#C68642','','','','','','',''],
+    ['','','','','','','','','','','','','','','',''],
+  ],
+  banana:[
+    ['','','#5c3a00','#5c3a00','','','','','',''],
+    ['','','','#c8960a','#f5c800','#f5c800','','','',''],
+    ['','','','#c8960a','#f5c800','#f5c800','#fff59a','#c8960a','',''],
+    ['','','','#c8960a','#f5c800','#f5c800','#fff59a','#c8960a','',''],
+    ['','','','','#c8960a','#f5c800','#f5c800','#fff59a','#c8960a',''],
+    ['','','','','#c8960a','#f5c800','#f5c800','#fff59a','#c8960a',''],
+    ['','','','','#c8960a','#c8960a','#f5c800','#f5c800','#fff59a',''],
+    ['','','','','#c8960a','#c8960a','#f5c800','#f5c800','#fff59a',''],
+    ['','','','','#c8960a','#f5c800','#f5c800','#fff59a','#c8960a',''],
+    ['','','','','#c8960a','#f5c800','#f5c800','#fff59a','#c8960a',''],
+    ['','','','#c8960a','#f5c800','#f5c800','#fff59a','#c8960a','',''],
+    ['','','','#c8960a','#f5c800','#f5c800','#fff59a','#c8960a','',''],
+    ['','','','#c8960a','#f5c800','#f5c800','','','',''],
+    ['','','#5c3a00','#5c3a00','','','','','',''],
+  ],
+  anchor:[
+    ['','#2d8a2d','#2d8a2d','','','','',''],
+    ['#2d8a2d','#4cff6e','#4cff6e','#2d8a2d','#2d8a2d','','',''],
+    ['#2d8a2d','#4cff6e','#4cff6e','#4cff6e','#4cff6e','#2d8a2d','',''],
+    ['','#2d8a2d','#4cff6e','#4cff6e','#2d8a2d','#2d8a2d','',''],
+    ['','','#2d8a2d','#2d8a2d','','','',''],
+    ['','','','','','','',''],
+    ['','','','','','','',''],
+    ['','','','','','','',''],
+  ],
+};
+
+function buildSpriteCache(sprites) {
+  const cache = {};
+  for (const [name, grid] of Object.entries(sprites)) {
+    const h=grid.length, w=grid[0].length;
+    const oc=document.createElement('canvas');
+    oc.width=w; oc.height=h;
+    const c2=oc.getContext('2d');
+    const img=c2.createImageData(w,h);
+    for (let y=0;y<h;y++) for (let x=0;x<w;x++) {
+      const col=grid[y][x], i=(y*w+x)*4;
+      if (!col){img.data[i+3]=0;continue;}
+      img.data[i]  =parseInt(col.slice(1,3),16);
+      img.data[i+1]=parseInt(col.slice(3,5),16);
+      img.data[i+2]=parseInt(col.slice(5,7),16);
+      img.data[i+3]=255;
+    }
+    c2.putImageData(img,0,0);
+    cache[name]=oc;
+  }
+  return cache;
+}
+
+// ═══════════════════════════════════════════════════
+// CANVAS / RESIZE
+// ═══════════════════════════════════════════════════
+const canvas = document.getElementById('game');
+const ctx    = canvas.getContext('2d');
+const overlay    = document.getElementById('screen-overlay');
+let W, H, SCALE;
+
+function resize() {
+  W = Math.min(window.innerWidth, 430);
+  H = window.innerHeight;
+  canvas.width=W; canvas.height=H;
+  SCALE = Math.max(2, Math.floor(Math.min(W,H)/150));
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ═══════════════════════════════════════════════════
+// PHYSICS CONSTANTS
+// ═══════════════════════════════════════════════════
+const GRAV     = 0.45;   // px/frame²
+const APE_W    = 16;     // sprite width in pixels
+const APE_H    = 16;     // sprite height in pixels
+const ANCHOR_Y = -6;     // vine pivot: just above top of screen (screen-space, fixed)
+const MIN_ANGVEL = 0.01; // minimum angular velocity when grabbing
+
+// ═══════════════════════════════════════════════════
+// WORLD / GAME STATE
+// ═══════════════════════════════════════════════════
+let state   = 'start';
+let score       = 0;
+let scoreBonus  = 0;  // bananas + multiplier bonus, never resets
+let lastWorldX  = 0;  // worldX at last frame, for incremental scoring
+let comboCount   = 0;  // consecutive forward grabs
+let lastGrabWX   = 0;  // world X at last grab
+let multHighWX   = 0;  // high-water mark when multiplier is active
+let multiplier   = 1;  // 1 or 2
+let multPopup    = 0;  // >0 = visible, used for fade-in/out only
+let hiScore = parseInt(localStorage.getItem('vine_hi')||'0');
+document.getElementById('hi-display').textContent = hiScore;
+
+// camX: world X that maps to screen X=0.
+// ape position is stored in WORLD space (ape.wx, ape.wy).
+// Screen position = world position - camX.
+let camX      = 0;
+let worldX    = 0;   // rightward distance travelled (for score)
+let vines     = [];  // { wx: world-x, len }
+let bananas      = [];  // { wx, wy, collected }
+let bananaCount  = 0;   // bananas collected this run
+let particles = [];
+let nextVineWX = 0;
+let rng;
+
+// The ape is stored in WORLD coordinates.
+// anchorWX is the world-x of the current vine's pivot.
+const ape = {
+  wx:0, wy:0,       // world position of sprite top-left
+  vx:0, vy:0,       // world velocity (px/frame)
+  grabbing: false,
+  vineId:   -1,  // unique id of held vine, not array index
+  anchorWX: 0,      // world-x of current vine anchor
+  vineLen:  0,
+  angle:    0,      // radians from straight-down
+  angVel:   0,      // radians/frame
+  dead:     false,
+  lastVineId: -1, // id of previously held vine
+  // Tail vine: free pendulum hanging from ape's hands while swinging
+  tailAngle: 0,     // angle of dangling tail section from ape hands
+  tailAngVel: 0,    // angular velocity of tail
+};
+
+function apeScreenX() { return ape.wx - camX; }
+function apeCX()      { return ape.wx - camX + (APE_W*SCALE)/2; }
+function apeCY()      { return ape.wy         + (APE_H*SCALE)/2; }
+// world centre of ape
+function apeWCX()     { return ape.wx + (APE_W*SCALE)/2; }
+function apeWCY()     { return ape.wy + (APE_H*SCALE)/2; }
+
+function setApeWorldCentre(wcx, wcy) {
+  ape.wx = wcx - (APE_W*SCALE)/2;
+  ape.wy = wcy - (APE_H*SCALE)/2;
+}
+
+// ═══════════════════════════════════════════════════
+// WORLD GENERATION
+// ═══════════════════════════════════════════════════
+function mkRng(seed) {
+  return function() {
+    seed=(seed+0x6D2B79F5)|0;
+    let t=Math.imul(seed^(seed>>>15),1|seed);
+    t=t+Math.imul(t^(t>>>7),61|t)^t;
+    return ((t^(t>>>14))>>>0)/0x100000000;
+  };
+}
+
+function generateVines(fromWX, toWX) {
+  let x = fromWX;
+  while (x < toWX) {
+    x += 90 + rng()*110;
+    const len = H*0.35 + rng()*H*0.40;
+    vines.push({ wx:x, len, id: nextVineWX + vines.length, swingAngle:0, swingAngVel:0 });
+    if (rng() < 0.20) {
+      const bAngle = (rng()-0.5)*1.0;
+      const bwx = x + Math.sin(bAngle)*len*0.85;
+      const bwy = ANCHOR_Y + Math.cos(bAngle)*len*0.85;
+      bananas.push({ wx:bwx, wy:bwy, collected:false });
+    }
+  }
+  nextVineWX = x;
+}
+
+// ═══════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════
+function initGame() {
+  rng = mkRng(Date.now() ^ (Math.random()*0xFFFFFFFF|0));
+  camX=0; worldX=0; score=0; scoreBonus=0; lastWorldX=0; bananaCount=0;
+  comboCount=0; multiplier=1; multPopup=0; lastGrabWX=0; multHighWX=0;
+  vines=[]; bananas=[]; particles=[];
+  nextVineWX=0;
+  generateVines(0, W*4);
+
+  const first = vines[0];
+  // Centre camera so first vine is in the middle of the screen
+  camX = first.wx - W/2;
+
+  ape.grabbing  = true;
+  ape.vineId    = vines[0].id;
+  ape.anchorWX  = first.wx;
+  ape.vineLen   = first.len;
+  ape.angle     = -0.7;  // start tilted left → swings right
+  ape.angVel    = 0;
+  setApeWorldCentre(
+    ape.anchorWX + Math.sin(ape.angle)*ape.vineLen,
+    ANCHOR_Y     + Math.cos(ape.angle)*ape.vineLen
+  );
+  ape.vx=0; ape.vy=0; ape.dead=false;
+  ape.lastVineId = -1; // ensure first regrab gets boost
+
+  document.getElementById('score-display').textContent = 0;
+  // Seed gator pool starting from the furthest chunk only
+  gatorPool = [];
+  gatorTime = 0;
+  gatorMinChunk = Math.ceil((camX + W*2) / W);
+  const initChunk = gatorMinChunk;
+  const initRn = detRng(initChunk * 9999 + 7654);
+  const initCount = (initRn() & 1) === 0 ? 1 : 0;
+  for (let k = 0; k < initCount; k++) {
+    const baseWX = initChunk * W + (initRn() % (W|0));
+    const driftSpd = (8 + (initRn() % 18)) * (initRn()%2===0 ? 1 : -1);
+    gatorPool.push({ chunk: initChunk, baseWX, driftSpd, seed: initChunk*100+k });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// INPUT
+//
+// KEY RULE: grabbing state is ONLY changed by explicit
+// grabVine() and releaseVine() calls — never by the
+// physics loop. One pointerdown → one grab attempt.
+// grabLocked prevents any re-grab until the finger lifts.
+// ═══════════════════════════════════════════════════
+let grabLocked  = false;
+let grabReach   = 50; // starts at 50, reduces by 2 per retry down to 40
+let isRetry     = false;
+
+function onDown(e) {
+  e.preventDefault();
+  if (state !== 'playing' || ape.dead) return;
+  if (grabLocked) return;
+  grabLocked = true;
+
+  if (ape.grabbing) return; // on vine — release on pointerup
+
+  // Find the nearest vine BODY the ape is close to.
+  // For a swinging vine the body is a straight line from anchor (v.wx, ANCHOR_Y)
+  // to its current tip (v.wx + sin(swingAngle)*len, ANCHOR_Y + cos(swingAngle)*len).
+  // We compute the closest point on that line segment to the ape centre,
+  // then check if it's within GRAB_REACH.
+  const GRAB_REACH = grabReach;
+  let best = -1, bestDist = Infinity, bestGrabWY = 0;
+  const wcx = apeWCX(), wcy = apeWCY();
+  for (let i = 0; i < vines.length; i++) {
+    const v = vines[i];
+    // Anchor (world space)
+    const ax = v.wx, ay = ANCHOR_Y;
+    // Tip (world space, accounts for current swing angle)
+    const tx = v.wx + Math.sin(v.swingAngle) * v.len;
+    const ty = ANCHOR_Y + Math.cos(v.swingAngle) * v.len;
+    // Vector along vine
+    const vx = tx - ax, vy = ty - ay;
+    const lenSq = vx*vx + vy*vy;
+    // Project ape centre onto the vine line, clamped to [0,1]
+    const t = Math.max(0, Math.min(1, ((wcx-ax)*vx + (wcy-ay)*vy) / lenSq));
+    // Closest point on vine to ape
+    const cx = ax + t*vx, cy = ay + t*vy;
+    const dist = Math.sqrt((wcx-cx)*(wcx-cx) + (wcy-cy)*(wcy-cy));
+    // Never grab the vine already being held
+    if (ape.grabbing && v.id === ape.vineId) continue;
+
+    if (dist < GRAB_REACH) {
+      // Prefer any vine that isn't the last one held.
+      // Only fall back to lastVineId if nothing else is in range.
+      const isLast = v.id === ape.lastVineId;
+      const bestIsLast = best !== -1 && vines[best].id === ape.lastVineId;
+      if (
+        (isLast && best === -1) ||          // only candidate so far — accept it
+        (!isLast && (bestIsLast || dist < bestDist)) // new vine beats last vine, or closer
+      ) {
+        bestDist   = dist;
+        best       = i;
+        bestGrabWY = cy;
+      }
+    }
+  }
+  if (best !== -1) grabVine(best, bestGrabWY);
+}
+
+function onUp(e) {
+  e.preventDefault();
+  grabLocked = false;
+  if (!ape.grabbing || ape.dead || state !== 'playing') return;
+  releaseVine();
+}
+
+function grabVine(idx, grabWY) {
+  const v = vines[idx];
+
+  // Ape stays exactly where it is — no position snap.
+  // Rope length = real distance from new anchor to ape centre.
+  const wcx = apeWCX(), wcy = apeWCY();
+  const dx = wcx - v.wx;
+  const dy = wcy - ANCHOR_Y;
+  const ropeLen = Math.max(Math.sqrt(dx*dx + dy*dy), 20);
+  const angle   = Math.atan2(dx, dy); // from straight-down
+
+  // Project full linear velocity onto the tangent at this angle.
+  // Tangent direction for increasing θ: (cos θ, -sin θ)  [Y downward]
+  const tangSpeed = ape.vx * Math.cos(angle) + ape.vy * (-Math.sin(angle));
+  const angVel    = tangSpeed / ropeLen;
+  // No clamping here — let the pendulum carry whatever momentum exists.
+  // The easing nudge in the physics loop handles the minimum floor.
+
+  // Boost only when grabbing a NEW vine, not re-grabbing the same one
+  const GRAB_BOOST = 0.015;
+  const isNewVine = v.id !== ape.lastVineId;
+  const boostedAngVel = (isNewVine && angVel >= 0) ? angVel + GRAB_BOOST
+                      : (isNewVine)                ? angVel - GRAB_BOOST
+                      : angVel;
+
+  ape.grabbing   = true;
+  ape.vineId     = v.id;
+  ape.anchorWX   = v.wx;
+  ape.vineLen    = ropeLen;
+  ape.angle      = angle;
+  ape.angVel     = boostedAngVel;
+  // Initialise tail: hangs straight down from hands, inherits a bit of angular momentum
+  ape.tailAngle  = 0;
+  ape.tailAngVel = boostedAngVel * 0.5;
+  ape.lastVineId = v.id; // remember for next grab
+
+  // ── Multiplier: count forward grabs ──
+  // Forward = grabbed a vine further right than the previous grab position.
+  if (apeWCX() > lastGrabWX) {
+    comboCount++;
+    if (comboCount >= 5 && multiplier === 1) {
+      multiplier = 2;
+      multPopup  = 255; // fully visible, never auto-expires while active
+    }
+  } else {
+    comboCount = 0;
+  }
+  lastGrabWX = apeWCX();
+
+  // Clear the vine's own swing animation — ape now controls it
+  v.swingAngle   = 0;
+  v.swingAngVel  = 0;
+  // ape.wx / ape.wy untouched — smooth transition, no teleport
+}
+
+function releaseVine() {
+  // tangent direction at angle θ: (cos θ, -sin θ)  [Y downward]
+  const spd = ape.angVel * ape.vineLen;
+  ape.vx =  spd * Math.cos(ape.angle);
+  ape.vy = -spd * Math.sin(ape.angle);
+
+  // Hand the vine's current swing state back to the vine so it rebounds
+  const releasedVine = vines.find(v => v.id === ape.vineId);
+  if (releasedVine) {
+    releasedVine.swingAngle   = ape.angle;
+    releasedVine.swingAngVel  = ape.angVel;
+  }
+
+  ape.grabbing = false;
+  ape.vineId   = -1;
+}
+
+canvas.addEventListener('pointerdown',   onDown, {passive:false});
+canvas.addEventListener('pointerup',     onUp,   {passive:false});
+canvas.addEventListener('pointercancel', onUp,   {passive:false});
+document.getElementById('main-btn').addEventListener('click', () => {
+  grabReach = 50;
+  isRetry = false;
+  overlay.classList.add('hidden'); startGame();
+});
+document.getElementById('clear-hi-btn').addEventListener('click', () => {
+  hiScore = 0;
+  localStorage.removeItem('vine_hi');
+  document.getElementById('hi-display').textContent = 0;
+  const _ohc=document.getElementById('hi-display-overlay'); if(_ohc) _ohc.textContent=0;
+});
+
+// ═══════════════════════════════════════════════════
+// PARTICLES
+// ═══════════════════════════════════════════════════
+function spawnParticles(sx, sy, color, n=7) {
+  for (let i=0;i<n;i++) particles.push({
+    x:sx, y:sy,
+    vx:(Math.random()-0.5)*5, vy:-Math.random()*5,
+    life:1, decay:0.03+Math.random()*0.04,
+    color, size:2+Math.random()*4
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// PHYSICS UPDATE  —  everything in world space
+// ═══════════════════════════════════════════════════
+function update() {
+  if (ape.dead) return;
+
+  if (ape.grabbing) {
+    // ── Pendulum (world space) ──
+    // bob position relative to anchor:
+    //   bx = sin(θ) * L       (right is +)
+    //   by = cos(θ) * L       (down  is +, Y increases downward)
+    // Restoring torque: α = -(g/L) * sin(θ)
+    const prevAngVel = ape.angVel;
+    const alpha = -(GRAV / ape.vineLen) * Math.sin(ape.angle);
+    ape.angVel += alpha;
+    // No damping — pendulum physics handles accel/decel naturally
+
+    // ── Max velocity cap ──
+    // Energy to reach 90° from rest: ΔE = mgL (height gain = L)
+    // At bottom of swing all that energy is kinetic: ½(mL²)ω² = mgL
+    // → ω_max = √(2g/L)
+    const MAX_ANGVEL = Math.sqrt(2 * GRAV / ape.vineLen);
+    const MID_ANGVEL = (MAX_ANGVEL + MIN_ANGVEL) * 0.5;
+    if (Math.abs(ape.angVel) > MAX_ANGVEL) {
+      const sign = ape.angVel > 0 ? 1 : -1;
+      // Ease toward midpoint between max and min (per-frame lerp)
+      ape.angVel += (sign * MID_ANGVEL - ape.angVel) * 0.08;
+    }
+
+    // ── Minimum energy nudge — fires only at swing peak (angVel sign flip) ──
+    const crossedPeak = (prevAngVel * ape.angVel < 0);
+    if (crossedPeak && Math.abs(ape.angVel) < MIN_ANGVEL) {
+      const target = ape.angVel >= 0 ? MIN_ANGVEL : -MIN_ANGVEL;
+      ape.angVel += (target - ape.angVel) * 0.25;
+    }
+
+    ape.angle  += ape.angVel;
+
+    // Hard clamp — prevent looping over the top
+    const MAX_A = Math.PI * 0.82;
+    if (ape.angle >  MAX_A) { ape.angle =  MAX_A; ape.angVel *= -0.2; }
+    if (ape.angle < -MAX_A) { ape.angle = -MAX_A; ape.angVel *= -0.2; }
+
+    const wcx = ape.anchorWX + Math.sin(ape.angle) * ape.vineLen;
+    const wcy = ANCHOR_Y     + Math.cos(ape.angle) * ape.vineLen;
+    setApeWorldCentre(wcx, wcy);
+
+    // ── Tail pendulum: free segment hanging from ape's hands ──
+    // Tail pivot = ape's world centre (hands).
+    // Tail length = remaining vine below grab point.
+    // Acts as an independent pendulum driven by the same gravity.
+    const TAIL_GRAV = GRAV * 1.1; // slightly snappier than main swing
+    const _tv = vines.find(v => v.id === ape.vineId);
+    const tailLen = Math.max(_tv ? _tv.len - ape.vineLen : 40, 20);
+    const tailAlpha = -(TAIL_GRAV / tailLen) * Math.sin(ape.tailAngle);
+    ape.tailAngVel += tailAlpha;
+    ape.tailAngVel *= 0.97; // tail has a little air drag for natural droop
+    ape.tailAngle  += ape.tailAngVel;
+    // Clamp tail so it doesn't wrap
+    const MAX_TAIL = Math.PI * 0.7;
+    if (ape.tailAngle >  MAX_TAIL) { ape.tailAngle =  MAX_TAIL; ape.tailAngVel *= -0.4; }
+    if (ape.tailAngle < -MAX_TAIL) { ape.tailAngle = -MAX_TAIL; ape.tailAngVel *= -0.4; }
+
+  } else {
+    // ── Free flight (world space) ──
+    ape.vy += GRAV;
+    ape.wx += ape.vx;
+    ape.wy += ape.vy;
+
+    // Death: fell below screen
+    if (ape.wy > H + 80) { killApe(); return; }
+    // Soft ceiling
+    if (ape.wy < -APE_H*SCALE) { ape.wy = -APE_H*SCALE; ape.vy = Math.abs(ape.vy)*0.3; }
+  }
+
+  // ── Camera: keep ape horizontally centred on screen ──
+  // Target: ape screen X = W/2
+  const targetCamX = apeWCX() - W/2;
+  // Smooth-follow with lerp (instant would also be fine here)
+  camX += (targetCamX - camX) * 0.15;
+
+  // Track rightward progress — score increases incrementally
+  const newWorldX = apeWCX();
+  if (newWorldX > worldX) {
+    const prevDist = Math.floor(worldX / 40);
+    worldX = newWorldX;
+    const newDist  = Math.floor(worldX / 40);
+    const distInc  = newDist - prevDist;
+    if (distInc > 0) {
+      // Each distance point earns 1 normally, 2 with multiplier (bonus = extra 1)
+      score += distInc;
+      if (multiplier === 2) scoreBonus += distInc; // extra 1x on top
+    }
+    lastWorldX = worldX;
+    document.getElementById('score-display').textContent = score + scoreBonus;
+  }
+
+  // ── Multiplier / combo backward-motion guard ──
+  // Track high-water mark always. The moment ape moves back >5px from
+  // their peak: reset combo AND exit multiplier if active.
+  if (newWorldX > multHighWX) {
+    multHighWX = newWorldX;
+  } else if (newWorldX < multHighWX - 5) {
+    // Moving backward — reset combo count regardless of multiplier state
+    comboCount = 0;
+    if (multiplier === 2) {
+      multiplier = 1;
+      multPopup  = 0;
+    }
+    // Don't update multHighWX here — only advance on forward progress
+  }
+
+  // ── Vine rebound animations ──
+  for (const v of vines) {
+    if (!v.swingAngle && !v.swingAngVel) continue; // at rest, skip
+    // Damped pendulum swinging back to vertical
+    const va = -(GRAV / v.len) * Math.sin(v.swingAngle);
+    v.swingAngVel += va;
+    v.swingAngVel *= 0.981; // ~3 swings to rest
+    v.swingAngle  += v.swingAngVel;
+    // Snap to rest when close enough
+    if (Math.abs(v.swingAngle) < 0.005 && Math.abs(v.swingAngVel) < 0.005) {
+      v.swingAngle = 0;
+      v.swingAngVel = 0;
+    }
+  }
+
+  // Cull old world objects (behind camera by >500px)
+  vines   = vines.filter(v => v.wx > camX - W*3);
+  bananas = bananas.filter(b => b.wx > camX - W*2);
+
+  // Generate more vines ahead
+  if (nextVineWX < camX + W*3) generateVines(nextVineWX, camX + W*5);
+
+  // ── Banana pickup ──
+  const wcx2 = apeWCX(), wcy2 = apeWCY();
+  for (const b of bananas) {
+    if (b.collected) continue;
+    if (Math.abs(b.wx - wcx2)<24 && Math.abs(b.wy - wcy2)<24) {
+      b.collected=true;
+      bananaCount++;
+      score += 25;
+      if (multiplier === 2) scoreBonus += 25;
+      document.getElementById('score-display').textContent = score + scoreBonus;
+      spawnParticles(b.wx - camX, b.wy, '#FFD700', 8);
+    }
+  }
+
+  // ── Gator tick ──
+  tickGators();
+
+  // ── Multiplier popup tick ──
+  // Only countdown when multiplier is off (fade-out)
+  if (multiplier === 1 && multPopup > 0) multPopup--;
+
+  // ── Particles ──
+  for (const p of particles) { p.x+=p.vx; p.y+=p.vy; p.vy+=0.12; p.life-=p.decay; }
+  particles = particles.filter(p=>p.life>0);
+}
+
+// ═══════════════════════════════════════════════════
+// DEATH
+// ═══════════════════════════════════════════════════
+function killApe() {
+  if (ape.dead) return;
+  ape.dead=true; state='dead';
+  spawnParticles(apeCX(), apeCY(), '#ff4444', 14);
+  score = score + scoreBonus;
+  if (score>hiScore) {
+    hiScore=score;
+    localStorage.setItem('vine_hi',hiScore);
+    document.getElementById('hi-display').textContent=hiScore;
+    const hm=document.getElementById('hi-display-overlay'); if(hm) hm.textContent=hiScore;
+  }
+  setTimeout(showGameOver, 700);
+}
+
+function showGameOver() {
+  const nb = score>=hiScore && score>0;
+  overlay.innerHTML=`
+    <div class="pixel-title" style="font-size:clamp(22px,7vw,42px)">&#x1F480; YOU FELL!</div>
+    <div class="over-score">SCORE: ${score}</div>
+    <div class="${nb?'new-best':'over-hi'}">${nb?'&#x2605; NEW BEST: '+hiScore+' &#x2605;':'BEST: '+hiScore}</div>
+    <div style="color:#FFD700;font-family:'Courier New',monospace;font-size:clamp(12px,3.5vw,17px);letter-spacing:2px;margin-bottom:20px;">&#x1F34C; BANANAS: ${bananaCount}</div>
+    <button class="pixel-btn" id="main-btn">&#x25BA; RETRY</button>
+    <div class="instructions">TAP &amp; HOLD &#x2192; GRAB VINE<br>RELEASE &#x2192; LAUNCH</div>
+  `;
+  overlay.classList.remove('hidden');
+  const _ohg=document.getElementById('overlay-hi');
+  if(_ohg){_ohg.style.display='block'; document.getElementById('hi-display-overlay').textContent=hiScore;}
+  document.getElementById('main-btn').addEventListener('click',()=>{
+    grabReach = Math.max(40, grabReach - 2);
+    isRetry = true;
+    overlay.classList.add('hidden'); startGame();
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// RENDERING  —  converts world→screen via camX
+// ═══════════════════════════════════════════════════
+// ── seeded RNG (reused for all bg layers) ──
+function detRng(seed) {
+  return function() {
+    seed=(seed+0x6D2B79F5)|0;
+    let t=Math.imul(seed^(seed>>>15),1|seed);
+    t=t+Math.imul(t^(t>>>7),61|t)^t;
+    return ((t^(t>>>14))>>>0);
+  };
+}
+
+// ── Layout zones ──
+// TOP    0 → H*0.30  : canopy / leaf layer
+// MID    H*0.30 → H*0.72 : tree trunks
+// BOTTOM H*0.72 → H    : river + gators
+
+function drawBg() {
+  // ── Sky gradient behind everything ──
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,   '#071a0e');
+  grad.addColorStop(0.3, '#0d2e12');
+  grad.addColorStop(0.7, '#08261a');
+  grad.addColorStop(1,   '#041510');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,W,H);
+
+  drawTreeTrunks();
+  drawLeafCanopy();
+  drawRiver();
+}
+
+// ── LEAVES: unified 3-layer system covering top zone down to trunk tops ──
+// Layer 0 (far/slow): sparse, larger, high up
+// Layer 1 (mid):      medium density, mid height
+// Layer 2 (near/fast): dense, small, right at trunk tops
+//
+// All layers share the same drawLeaf helper. Density and Y range
+// tighten toward the bottom so leaves converge densely at trunk tops.
+//
+// Y range for each layer blends from top-of-screen down to trunk top (H*0.30).
+// Leaves per column increases each layer. Size decreases each layer.
+
+function drawLeaf(x, y, hw, hh, rot, color) {
+  ctx.fillStyle = color;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, hw, hh, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Midrib
+  ctx.strokeStyle = '#07200a';
+  ctx.lineWidth = 0.6;
+  ctx.beginPath();
+  ctx.moveTo(-hw*0.75, 0); ctx.lineTo(hw*0.75, 0);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawLeafCanopy() {
+  // Trunk top Y — leaves get densest here
+  const trunkTop = H * 0.30;
+
+  // Three layers, each progressively: faster, smaller, denser, lower
+  const LAYERS = [
+    {
+      speed: 0.08, seed: 1001, gap: 32,
+      color: ['#0a2e0a','#0c360c','#0b320b'],
+      // Y band: top 0% to 80% of zone, centred high
+      yMin: 0.02, yMax: 0.65,
+      szMin: 14, szMax: 26,
+      perCol: 2,
+    },
+    {
+      speed: 0.18, seed: 2002, gap: 22,
+      color: ['#0e400e','#103c10','#0d3a0d'],
+      yMin: 0.20, yMax: 0.80,
+      szMin: 9, szMax: 18,
+      perCol: 3,
+    },
+    {
+      speed: 0.32, seed: 3003, gap: 14,
+      color: ['#124412','#155215','#134813'],
+      // Dense band right at trunk tops
+      yMin: 0.55, yMax: 1.0,
+      szMin: 5, szMax: 12,
+      perCol: 5,
+    },
+  ];
+
+  for (const l of LAYERS) {
+    // px = how far this layer has scrolled in screen space
+    const px  = camX * l.speed;
+    // off = sub-gap scroll offset (for smooth movement)
+    const off = ((px % l.gap) + l.gap) % l.gap;
+    // worldCol = which world column is at the left edge — changes only per gap
+    const worldCol = Math.floor(px / l.gap);
+    for (let i = -2; i < Math.ceil(W / l.gap) + 3; i++) {
+      const bx = i * l.gap - off;
+      // Seed = layer seed + ABSOLUTE world column index (stable across frames)
+      const colIdx = worldCol + i;
+      const rn = detRng(l.seed + colIdx * 7919); // 7919 = prime, avoids patterns
+      for (let k = 0; k < l.perCol; k++) {
+        const t   = (rn() % 1000) / 1000;  // 0..1
+        const x   = bx + (rn() % l.gap);
+        const y   = trunkTop * (l.yMin + t * (l.yMax - l.yMin));
+        const hw  = l.szMin + (rn() % (l.szMax - l.szMin + 1));
+        const hh  = hw * 0.38 + (rn() % 4);
+        const rot = ((rn() % 120) - 60) * Math.PI / 180;
+        const ci  = rn() % l.color.length;
+        drawLeaf(x, y, hw, hh, rot, l.color[ci]);
+      }
+    }
+  }
+}
+
+// ── MID: tree trunks in 2 layers ──
+function drawTreeTrunks() {
+  const topY  = H * 0.28;
+  const botY  = H * 0.74;
+  const layers = [
+    { speed:0.45, seed:4004, gap:90,  w:18, color:'#1a0e08', highlight:'#2a1810' },
+    { speed:0.65, seed:5005, gap:60,  w:11, color:'#120a05', highlight:'#1e1008' },
+  ];
+  for (const l of layers) {
+    const px  = camX * l.speed;
+    const off = ((px % l.gap) + l.gap) % l.gap;
+    const sb  = Math.floor(px / l.gap);
+    for (let i = -2; i < Math.ceil(W/l.gap)+3; i++) {
+      const x  = i * l.gap - off;
+      const rn = detRng(l.seed + sb + i * 17);
+      const tw = l.w + (rn() % 8);
+      // Trunk body
+      ctx.fillStyle = l.color;
+      ctx.fillRect(x - tw/2, topY, tw, botY - topY);
+      // Highlight stripe for bark texture
+      ctx.fillStyle = l.highlight;
+      ctx.fillRect(x - tw/2 + 2, topY, 2, botY - topY);
+      // Root flare at bottom
+      ctx.fillStyle = l.color;
+      ctx.beginPath();
+      ctx.moveTo(x - tw/2 - 6, botY);
+      ctx.lineTo(x - tw/2,     topY + (botY-topY)*0.7);
+      ctx.lineTo(x + tw/2,     topY + (botY-topY)*0.7);
+      ctx.lineTo(x + tw/2 + 6, botY);
+      ctx.closePath();
+      ctx.fill();
+      // Bark lines
+      ctx.strokeStyle = '#0a0604';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3,5]);
+      for (let b = 0; b < 4; b++) {
+        const by = topY + (botY-topY) * (b+1)/5;
+        ctx.beginPath();
+        ctx.moveTo(x-tw/2, by); ctx.lineTo(x+tw/2, by);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+  }
+}
+
+// ── BOTTOM: river + gators ──
+// Gators are pre-seeded per-screen-width so they feel placed not generated
+let gatorPool = [];
+let gatorTime = 0;
+let gatorMinChunk = 0; // chunks below this are never populated // advances each physics frame — no real-time drift issues
+
+function tickGators() {
+  gatorTime += 0.4; // px per frame drift speed
+}
+
+function ensureGators() {
+  const needed = Math.floor((camX - W) / W);
+  const max    = Math.ceil((camX + W*2) / W);
+  for (let chunk = needed; chunk <= max; chunk++) {
+    if (chunk < gatorMinChunk) continue; // never populate early chunks
+    if (gatorPool.find(g => g.chunk === chunk)) continue;
+    const rn    = detRng(chunk * 9999 + 7654);
+    const count = (rn() & 1) === 0 ? 1 : 0; // ~50% chance of a gator per screen chunk
+    for (let k = 0; k < count; k++) {
+      // World X within this chunk
+      const baseWX = chunk * W + (rn() % (W|0));
+      // Drift speed in px/tick — slow meander
+      const driftSpd = (8 + (rn() % 18)) * (rn()%2===0 ? 1 : -1);
+      gatorPool.push({ chunk, baseWX, driftSpd, seed: chunk*100+k });
+    }
+  }
+  gatorPool = gatorPool.filter(g => g.chunk >= needed);
+}
+
+function drawRiver() {
+  const ry = H * 0.72;
+  const rh = H - ry;
+
+  // Water fill — dark teal with shimmer bands
+  ctx.fillStyle = '#04201a';
+  ctx.fillRect(0, ry, W, rh);
+
+  // Shimmer lines (parallax scroll)
+  ctx.strokeStyle = 'rgba(20,80,60,0.35)';
+  ctx.lineWidth = 1;
+  const shimOff = (camX * 0.8) % 24;
+  for (let sx = -shimOff; sx < W + 24; sx += 24) {
+    ctx.beginPath();
+    ctx.moveTo(sx, ry + 4);
+    ctx.lineTo(sx + 12, ry + 8);
+    ctx.lineTo(sx + 24, ry + 4);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(10,50,40,0.25)';
+  const shim2 = (camX * 0.5) % 40;
+  for (let sx = -shim2; sx < W + 40; sx += 40) {
+    ctx.beginPath();
+    ctx.moveTo(sx, ry + rh*0.4);
+    ctx.lineTo(sx + 20, ry + rh*0.4 + 4);
+    ctx.lineTo(sx + 40, ry + rh*0.4);
+    ctx.stroke();
+  }
+
+  // Riverbank edge
+  ctx.fillStyle = '#1a3a0a';
+  ctx.fillRect(0, ry, W, 4);
+
+  // ── Gators ──
+  ensureGators();
+  for (const g of gatorPool) {
+    // Oscillate gator back and forth around its base position
+    const driftRange = 60;
+    const driftPhase = (g.baseWX * 0.01); // offset phase per gator
+    const drift = Math.sin((gatorTime + driftPhase) * g.driftSpd * 0.003) * driftRange;
+    const wx  = g.baseWX + drift;
+    const sx  = wx - camX;
+    if (sx < -100 || sx > W + 100) continue;
+    const flip = drift < 0; // face the direction of travel
+    // Place in middle of river zone with some vertical spread
+    const rn2 = detRng(g.seed * 77 + 321);
+    const sy  = ry + rh * 0.2 + (rn2() % (rh * 0.55 | 0));
+    drawGator(sx, sy, flip, g.seed);
+  }
+}
+
+function drawGator(sx, sy, flip, seed) {
+  // sy = waterline — body floats so only top half shows above water
+  ctx.save();
+  if (flip) { ctx.translate(sx, sy); ctx.scale(-1,1); ctx.translate(-sx,-sy); }
+
+  const rn  = detRng(seed * 31 + 1234);
+  const len = 70 + (rn() % 30);
+  const bh  = 10; // half-height above waterline
+
+  // ── Clip to above waterline only ──
+  ctx.beginPath();
+  ctx.rect(sx - len - 30, sy - bh * 3, len * 2 + 60, bh * 3);
+  ctx.clip();
+
+  // Body — flat ellipse, centre sits AT waterline so top half shows
+  ctx.fillStyle = '#1e3a10';
+  ctx.beginPath();
+  ctx.ellipse(sx, sy, len * 0.5, bh, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Ridged spine bumps along top
+  ctx.fillStyle = '#162d0c';
+  for (let k = 0; k < 6; k++) {
+    const bx = sx - len * 0.38 + k * (len * 0.76 / 5);
+    const bumpH = 3 + (k === 0 || k === 5 ? 0 : 1);
+    ctx.beginPath();
+    ctx.ellipse(bx, sy - bh * 0.6, 4, bumpH, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Tail — flat taper behind body, sits at waterline
+  ctx.fillStyle = '#1a3210';
+  ctx.beginPath();
+  ctx.moveTo(sx - len * 0.48, sy - 2);
+  ctx.lineTo(sx - len * 0.48 - 22, sy - 1);
+  ctx.lineTo(sx - len * 0.48 - 26, sy + 1);
+  ctx.lineTo(sx - len * 0.48, sy + 1);
+  ctx.closePath();
+  ctx.fill();
+
+  // Snout — flat and wide, juts forward at waterline
+  ctx.fillStyle = '#1e3a10';
+  ctx.beginPath();
+  ctx.moveTo(sx + len * 0.48, sy - 3);
+  ctx.lineTo(sx + len * 0.48 + 18, sy - 1);
+  ctx.lineTo(sx + len * 0.48 + 18, sy + 2);
+  ctx.lineTo(sx + len * 0.48, sy + 2);
+  ctx.closePath();
+  ctx.fill();
+
+  // Teeth — tiny white slivers along snout
+  ctx.fillStyle = '#e8e8d0';
+  for (let t = 0; t < 3; t++) {
+    ctx.fillRect(sx + len * 0.48 + 4 + t * 4, sy - 1, 2, 2);
+  }
+
+  // Nostrils on snout tip
+  ctx.fillStyle = '#0a1a06';
+  ctx.fillRect(sx + len * 0.48 + 13, sy - 2, 2, 2);
+  ctx.fillRect(sx + len * 0.48 + 16, sy - 2, 2, 2);
+
+  // Eye — raised bump above waterline, yellow with slit pupil
+  const eyeX = sx + len * 0.28;
+  const eyeY = sy - bh * 0.85;
+  ctx.fillStyle = '#2a5018'; // eye bump
+  ctx.beginPath();
+  ctx.ellipse(eyeX, eyeY, 5, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#d4b800'; // iris
+  ctx.beginPath();
+  ctx.ellipse(eyeX, eyeY, 3.5, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000'; // slit pupil
+  ctx.fillRect(eyeX - 0.5, eyeY - 2.5, 1, 5);
+
+  // Water ripple around body — thin dark ring at waterline
+  ctx.strokeStyle = 'rgba(8,50,40,0.5)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(sx, sy, len * 0.52, 4, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawVines() {
+  const aImg = spriteCache['anchor'];
+  for (let i = 0; i < vines.length; i++) {
+    const v = vines[i];
+    // Hide the vine the ape is currently swinging on — it becomes the rope + tail
+    if (ape.grabbing && v.id === ape.vineId) continue;
+    const sx    = v.wx - camX;
+    const tipSX = sx + Math.sin(v.swingAngle) * v.len;
+    const tipSY = ANCHOR_Y + Math.cos(v.swingAngle) * v.len;
+    // Cull only if BOTH anchor and tip are off screen
+    const margin = v.len + 20;
+    if (sx < -margin && tipSX < -margin) continue;
+    if (sx > W + margin && tipSX > W + margin) continue;
+    const aw=aImg.width*SCALE, ah=aImg.height*SCALE;
+    ctx.drawImage(aImg, sx-aw/2, ANCHOR_Y, aw, ah);
+    ctx.strokeStyle='#3aaa3a'; ctx.lineWidth=2; ctx.setLineDash([5,3]);
+    ctx.beginPath(); ctx.moveTo(sx, ANCHOR_Y+4); ctx.lineTo(tipSX, tipSY); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='#2a6e2a';
+    ctx.fillRect(tipSX-3, tipSY-3, 6, 6);
+  }
+}
+
+function drawApe() {
+  const key = ape.grabbing ? 'ape_swing' : 'ape_idle';
+  const img = spriteCache[key];
+  if (!img) return;
+  const sw=img.width*SCALE, sh=img.height*SCALE;
+  const sx = ape.wx - camX;
+  const sy = ape.wy;
+
+  if (ape.grabbing) {
+    // ── Rope from anchor down to ape hands (top-centre of sprite) ──
+    const anchorSX = ape.anchorWX - camX;
+    const handSX   = sx + sw/2;
+    const handSY   = sy;             // hands at top of sprite
+    ctx.strokeStyle='#3aaa3a'; ctx.lineWidth=2; ctx.setLineDash([5,3]);
+    ctx.beginPath(); ctx.moveTo(anchorSX, ANCHOR_Y); ctx.lineTo(handSX, handSY); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Anchor leaf cluster (drawn above rope)
+    const aImg = spriteCache['anchor'];
+    const aw=aImg.width*SCALE, ah=aImg.height*SCALE;
+    ctx.drawImage(aImg, anchorSX-aw/2, ANCHOR_Y, aw, ah);
+
+    // ── Tail: remaining vine hanging below hands as a free pendulum ──
+    const tailLen = Math.max(
+      (vines.find(v => v.id === ape.vineId) || {len: ape.vineLen+40}).len - ape.vineLen, 20
+    );
+    const tailTipSX = handSX + Math.sin(ape.tailAngle) * tailLen;
+    const tailTipSY = handSY + Math.cos(ape.tailAngle) * tailLen;
+    ctx.strokeStyle='#3aaa3a'; ctx.lineWidth=2; ctx.setLineDash([5,3]);
+    ctx.beginPath(); ctx.moveTo(handSX, handSY); ctx.lineTo(tailTipSX, tailTipSY); ctx.stroke();
+    ctx.setLineDash([]);
+    // Knot at tail tip
+    ctx.fillStyle='#2a6e2a';
+    ctx.fillRect(tailTipSX-3, tailTipSY-3, 6, 6);
+  }
+
+  ctx.save();
+  const flip = ape.grabbing ? (ape.angVel < 0) : (ape.vx < -0.5);
+  if (flip) { ctx.translate(sx+sw,sy); ctx.scale(-1,1); ctx.drawImage(img,0,0,sw,sh); }
+  else       { ctx.drawImage(img, sx, sy, sw, sh); }
+  ctx.restore();
+}
+
+function drawBananas() {
+  const bImg=spriteCache['banana'];
+  const bw=bImg.width*SCALE, bh=bImg.height*SCALE;
+  const MAX_ROT = Math.PI / 6; // 30 degrees
+  const t = Date.now() / 1000;
+  for (const b of bananas) {
+    if (b.collected) continue;
+    const sx=b.wx-camX;
+    if (sx<-20||sx>W+20) continue;
+    // Each banana has its own phase offset based on world position
+    const phase = b.wx * 0.05;
+    const rot = Math.sin(t * 1.8 + phase) * MAX_ROT;
+    ctx.save();
+    ctx.translate(sx, b.wy);
+    ctx.rotate(rot);
+    ctx.drawImage(bImg, -bw/2, -bh/2, bw, bh);
+    ctx.restore();
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha=Math.max(0,p.life); ctx.fillStyle=p.color;
+    ctx.fillRect(p.x,p.y,p.size,p.size);
+  }
+  ctx.globalAlpha=1;
+}
+
+// Glow ring on active anchor + highlight grabbable vine tip
+function drawGrabUI() {
+  // Pulse ring on current anchor
+  if (ape.grabbing) {
+    const t=Date.now()/1000, r=14+Math.sin(t*7)*4;
+    const anchorSX=ape.anchorWX-camX;
+    ctx.strokeStyle=`rgba(76,255,110,${0.3+Math.sin(t*7)*0.15})`;
+    ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(anchorSX, ANCHOR_Y, r, 0, Math.PI*2); ctx.stroke();
+    return;
+  }
+  // Highlight vine body that the ape is horizontally aligned with
+  const GRAB_REACH = grabReach;
+  const wcx = apeWCX(), wcy = apeWCY();
+  for (const v of vines) {
+    if (wcy < ANCHOR_Y || wcy > ANCHOR_Y + v.len) continue;
+    if (Math.abs(wcx - v.wx) < GRAB_REACH) {
+      const sx = v.wx - camX;
+      ctx.strokeStyle = 'rgba(76,255,110,0.55)'; ctx.lineWidth = 3; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(sx, ANCHOR_Y); ctx.lineTo(sx, ANCHOR_Y + v.len); ctx.stroke();
+    }
+  }
+}
+
+function drawScanlines() {
+  ctx.fillStyle='rgba(0,0,0,0.07)';
+  for (let y=0;y<H;y+=3) ctx.fillRect(0,y,W,1);
+}
+
+function drawMultiplier() {
+  // Show when active OR briefly fading out after deactivation
+  if (multiplier !== 2 && multPopup <= 0) return;
+
+  const alpha = multiplier === 2 ? 1 : (multPopup / 20);
+  if (alpha <= 0) return;
+
+  // Fixed position — top centre, never moves
+  const fixedX = W / 2;
+  const fixedY = 52;
+
+  // Shake offset — rapid pixel jitter while active
+  let shakeX = 0, shakeY = 0;
+  if (multiplier === 2) {
+    const t = Date.now();
+    shakeX = (Math.sin(t * 0.31) * 2.5) | 0;
+    shakeY = (Math.cos(t * 0.47) * 1.5) | 0;
+  }
+
+  const cx = fixedX + shakeX;
+  const cy = fixedY + shakeY;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  const fs = Math.round(clamp(W * 0.09, 26, 44));
+  ctx.font         = 'bold ' + fs + 'px "Courier New", monospace';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Drop shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillText('x2', cx + 2, cy + 2);
+
+  // Glow halo
+  ctx.shadowColor = '#ffe000';
+  ctx.shadowBlur  = 8;
+  ctx.fillStyle   = '#ffe000';
+  ctx.fillText('x2', cx, cy);
+  ctx.shadowBlur  = 0;
+
+  // Outline
+  ctx.strokeStyle = '#7a5000';
+  ctx.lineWidth   = 1.5;
+  ctx.strokeText('x2', cx, cy);
+
+  ctx.restore();
+}
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ═══════════════════════════════════════════════════
+// GAME LOOP
+// ═══════════════════════════════════════════════════
+let frameId, lastTs=0, accum=0;
+// FPS tracking
+const fpsHistory = [];
+const updateHistory = [];
+const drawHistory   = [];
+let fpsDisplay = null;
+const STEP=1000/60;
+
+function loop(ts=0) {
+  frameId=requestAnimationFrame(loop);
+  const dt=Math.min(ts-lastTs,50);
+  // FPS: instantaneous frame time
+  const rawFps = lastTs > 0 ? 1000 / (ts - lastTs) : 60;
+  lastTs=ts;
+  fpsHistory.push(rawFps);
+  if (fpsHistory.length > 30) fpsHistory.shift();
+  const avgFps = fpsHistory.reduce((a,b)=>a+b,0) / fpsHistory.length;
+
+  if (state==='playing') {
+    accum+=dt;
+    const t0 = performance.now();
+    let updateCount = 0;
+    while (accum>=STEP) { update(); accum-=STEP; updateCount++; }
+    const updateMs = (performance.now() - t0).toFixed(1);
+
+    const t1 = performance.now();
+    ctx.clearRect(0,0,W,H);
+    drawBg(); drawVines(); drawBananas(); drawParticles();
+    drawGrabUI(); drawApe(); drawMultiplier(); drawScanlines();
+    const drawMs = (performance.now() - t1).toFixed(1);
+
+    // Track rolling histories for per-indicator baseline
+    updateHistory.push(parseFloat(updateMs));
+    drawHistory.push(parseFloat(drawMs));
+    if (updateHistory.length > 60) updateHistory.shift();
+    if (drawHistory.length   > 60) drawHistory.shift();
+
+    // Update FPS readout every 6 frames
+    // Peak mode — only update display when a new worst value is recorded
+    if (!fpsDisplay) fpsDisplay = document.getElementById('fps-display');
+    if (fpsDisplay) {
+      const uVal = parseFloat(updateMs);
+      const dVal = parseFloat(drawMs);
+      const fVal = avgFps;
+
+      // For first 2 seconds always overwrite (live values), then go sticky (peaks only)
+      const now_ms = performance.now();
+      if (!fpsDisplay._startMs) fpsDisplay._startMs = now_ms;
+      const sticky = (now_ms - fpsDisplay._startMs) > 2000;
+
+      if (!sticky || uVal > (fpsDisplay._peakU||0))          fpsDisplay._peakU = uVal;
+      if (!sticky || dVal > (fpsDisplay._peakD||0))          fpsDisplay._peakD = dVal;
+      if (!sticky || fVal < (fpsDisplay._peakFps||999))      fpsDisplay._peakFps = fVal;
+      if (!sticky || updateCount > (fpsDisplay._peakSteps||0)) fpsDisplay._peakSteps = updateCount;
+
+      // Only redraw if something changed
+      const newHtml =
+        '<span style="color:' + (fpsDisplay._peakFps >= 55 ? '#4cff6e' : fpsDisplay._peakFps >= 40 ? '#ffcc00' : '#ff4444') + '">↓' + fpsDisplay._peakFps.toFixed(0) + 'fps</span>' +
+        ' <span style="color:' + (fpsDisplay._peakU > 4 ? '#ff4444' : fpsDisplay._peakU > 2 ? '#ffcc00' : '#4cff6e') + '">↑u:' + fpsDisplay._peakU.toFixed(1) + 'ms</span>' +
+        ' <span style="color:' + (fpsDisplay._peakD > 8 ? '#ff4444' : fpsDisplay._peakD > 4 ? '#ffcc00' : '#4cff6e') + '">↑d:' + fpsDisplay._peakD.toFixed(1) + 'ms</span>' +
+        ' <span style="color:' + (fpsDisplay._peakSteps > 1 ? '#ff4444' : '#4cff6e') + '">↑×' + fpsDisplay._peakSteps + '</span>';
+      if (newHtml !== fpsDisplay._lastHtml) {
+        fpsDisplay.innerHTML = newHtml;
+        fpsDisplay._lastHtml = newHtml;
+      }
+    }
+  }
+}
+
+function startGame() {
+  state='playing'; accum=0;
+  grabLocked=false;
+  fpsDisplay = document.getElementById('fps-display'); if (fpsDisplay) { fpsDisplay._startMs=0; fpsDisplay._peakU=0; fpsDisplay._peakD=0; fpsDisplay._peakFps=999; fpsDisplay._peakSteps=0; fpsDisplay._lastHtml=''; fpsDisplay.innerHTML=''; }
+  initGame();
+  overlay.classList.add('hidden');
+  const _ohi=document.getElementById('overlay-hi'); if(_ohi) _ohi.style.display='none';
+}
+
+const spriteCache = buildSpriteCache(SPRITES);
+document.getElementById('overlay-hi').style.display='block';
+document.getElementById('hi-display-overlay').textContent=hiScore;
+// Sync menu hi display
+(function() {
+  const m = document.getElementById('hi-display-overlay');
+  if (m) m.textContent = hiScore;
+})();
+frameId = requestAnimationFrame(loop);
+</script>
+</body>
+</html>
